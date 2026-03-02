@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import { useRoute } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
-import { ShieldAlert, ShieldCheck, Copy, CheckCircle2, Lock, ArrowLeft, MoreVertical } from "lucide-react";
+import { ShieldAlert, ShieldCheck, Copy, CheckCircle2, Lock, ArrowLeft, Phone, PhoneOff, X } from "lucide-react";
 import { useChat } from "@/hooks/use-chat";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
@@ -15,10 +15,34 @@ export default function Chat() {
   const roomId = params?.id || "";
   const { toast } = useToast();
   
-  const { messages, connectionState, peerIsTyping, errorMsg, sendMessage, sendTypingStatus } = useChat(roomId);
+  const { 
+    messages, 
+    connectionState, 
+    peerIsTyping, 
+    errorMsg, 
+    callState,
+    sendMessage, 
+    sendTypingStatus,
+    startCall,
+    endCall
+  } = useChat(roomId);
   
   const scrollRef = useRef<HTMLDivElement>(null);
+  const localVideoRef = useRef<HTMLVideoElement>(null);
+  const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    if (localVideoRef.current && callState.localStream) {
+      localVideoRef.current.srcObject = callState.localStream;
+    }
+  }, [callState.localStream]);
+
+  useEffect(() => {
+    if (remoteVideoRef.current && callState.remoteStream) {
+      remoteVideoRef.current.srcObject = callState.remoteStream;
+    }
+  }, [callState.remoteStream]);
 
   // Auto scroll to bottom
   useEffect(() => {
@@ -91,10 +115,50 @@ export default function Chat() {
           </div>
         </div>
 
-        <Button variant="ghost" size="icon" className="text-muted-foreground">
-          <MoreVertical className="w-5 h-5" />
-        </Button>
+        <div className="flex items-center gap-2">
+          {connectionState === "secured" && (
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              onClick={callState.isCalling ? endCall : startCall}
+              className={callState.isCalling ? "text-destructive" : "text-primary"}
+            >
+              {callState.isCalling ? <PhoneOff className="w-5 h-5" /> : <Phone className="w-5 h-5" />}
+            </Button>
+          )}
+        </div>
       </header>
+
+      {/* Call Overlay */}
+      {callState.isCalling && (
+        <div className="absolute inset-0 z-50 bg-black/90 flex flex-col items-center justify-center p-4">
+          <div className="relative w-full max-w-2xl aspect-video bg-card rounded-2xl overflow-hidden shadow-2xl border border-border">
+            <video 
+              ref={remoteVideoRef} 
+              autoPlay 
+              playsInline 
+              className="w-full h-full object-cover"
+            />
+            <div className="absolute bottom-4 right-4 w-32 md:w-48 aspect-video bg-background rounded-lg overflow-hidden border border-border shadow-lg">
+              <video 
+                ref={localVideoRef} 
+                autoPlay 
+                playsInline 
+                muted 
+                className="w-full h-full object-cover"
+              />
+            </div>
+          </div>
+          <Button 
+            variant="destructive" 
+            size="lg" 
+            onClick={endCall}
+            className="mt-8 rounded-full h-16 w-16 p-0"
+          >
+            <PhoneOff className="w-6 h-6" />
+          </Button>
+        </div>
+      )}
 
       {/* Main Chat Area */}
       <main 
@@ -134,7 +198,8 @@ export default function Chat() {
       {/* Input Area */}
       <div className="flex-none z-10">
         <ChatInput 
-          onSendMessage={sendMessage}
+          onSendMessage={(text, timer) => sendMessage({ text }, timer)}
+          onSendImage={(image, timer) => sendMessage({ image }, timer)}
           onTyping={sendTypingStatus}
           disabled={connectionState !== "secured"}
         />

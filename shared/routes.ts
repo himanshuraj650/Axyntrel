@@ -55,6 +55,7 @@ export const wsEvents = {
     publicKey: z.object({ roomId: z.string(), publicKey: z.string() }),
     message: z.object({ roomId: z.string(), encryptedPayload: z.string(), iv: z.string() }),
     typing: z.object({ roomId: z.string(), isTyping: z.boolean() }),
+    callSignal: z.object({ roomId: z.string(), encryptedPayload: z.string(), iv: z.string() }),
     leave: z.object({ roomId: z.string() })
   },
   receive: {
@@ -62,6 +63,7 @@ export const wsEvents = {
     publicKey: z.object({ publicKey: z.string() }),
     message: z.object({ encryptedPayload: z.string(), iv: z.string(), timestamp: z.number() }),
     typing: z.object({ isTyping: z.boolean() }),
+    callSignal: z.object({ encryptedPayload: z.string(), iv: z.string(), timestamp: z.number() }),
     userLeft: z.object({ clientsCount: z.number() }),
     error: z.object({ message: z.string() })
   }

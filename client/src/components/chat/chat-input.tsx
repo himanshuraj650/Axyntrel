@@ -1,11 +1,12 @@
 import { useState, useRef, useEffect } from "react";
-import { Send, Timer, X } from "lucide-react";
+import { Send, Timer, X, Image as ImageIcon, Flame } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 
 interface ChatInputProps {
   onSendMessage: (text: string, destructTimer: number | null) => void;
+  onSendImage: (image: string, destructTimer: number | null) => void;
   onTyping: (isTyping: boolean) => void;
   disabled?: boolean;
 }
@@ -18,11 +19,12 @@ const TIMER_OPTIONS = [
   { label: "5m", value: 300 },
 ];
 
-export function ChatInput({ onSendMessage, onTyping, disabled }: ChatInputProps) {
+export function ChatInput({ onSendMessage, onSendImage, onTyping, disabled }: ChatInputProps) {
   const [text, setText] = useState("");
   const [timer, setTimer] = useState<number | null>(null);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Auto-resize textarea
   useEffect(() => {
@@ -48,6 +50,18 @@ export function ChatInput({ onSendMessage, onTyping, disabled }: ChatInputProps)
     if (textareaRef.current) textareaRef.current.style.height = 'auto';
   };
 
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file && !disabled) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const base64String = reader.result as string;
+        onSendImage(base64String, timer);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
@@ -59,6 +73,24 @@ export function ChatInput({ onSendMessage, onTyping, disabled }: ChatInputProps)
     <div className="p-4 bg-background/80 backdrop-blur-md border-t border-border">
       <div className="max-w-3xl mx-auto relative flex items-end gap-2 bg-card border border-border rounded-2xl p-2 focus-within:ring-1 focus-within:ring-primary/50 transition-all shadow-lg">
         
+        <input 
+          type="file" 
+          ref={fileInputRef} 
+          className="hidden" 
+          accept="image/*" 
+          onChange={handleImageUpload} 
+        />
+        
+        <Button 
+          variant="ghost" 
+          size="icon" 
+          className="shrink-0 rounded-xl h-10 w-10 text-muted-foreground hover:text-foreground"
+          disabled={disabled}
+          onClick={() => fileInputRef.current?.click()}
+        >
+          <ImageIcon className="w-5 h-5" />
+        </Button>
+
         <Popover>
           <PopoverTrigger asChild>
             <Button 

@@ -11,10 +11,18 @@ import {
 
 export type ChatMessage = {
   id: string;
-  text: string;
+  text?: string;
+  image?: string;
   isMine: boolean;
   timestamp: number;
   expiresAt: number | null; // null means no expiration
+};
+
+export type CallState = {
+  isCalling: boolean;
+  isReceiving: boolean;
+  remoteStream: MediaStream | null;
+  localStream: MediaStream | null;
 };
 
 export type ConnectionState =
@@ -30,11 +38,18 @@ export function useChat(roomId: string) {
   const [connectionState, setConnectionState] = useState<ConnectionState>("connecting");
   const [peerIsTyping, setPeerIsTyping] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [callState, setCallState] = useState<CallState>({
+    isCalling: false,
+    isReceiving: false,
+    remoteStream: null,
+    localStream: null,
+  });
 
   const wsRef = useRef<WebSocket | null>(null);
   const keyPairRef = useRef<CryptoKeyPair | null>(null);
   const sharedSecretRef = useRef<CryptoKey | null>(null);
   const myPublicKeyBase64Ref = useRef<string | null>(null);
+  const pcRef = useRef<RTCPeerConnection | null>(null);
 
   // Auto-delete timer loop
   useEffect(() => {
@@ -48,6 +63,63 @@ export function useChat(roomId: string) {
     }, 1000);
     return () => clearInterval(interval);
   }, []);
+
+  const sendCallSignal = useCallback(async (signal: any) => {
+    if (!wsRef.current || !sharedSecretRef.current) return;
+    const innerPayload = JSON.stringify({ type: 'webrtc', signal });
+    const { encryptedPayload, iv } = await encryptMessage(innerPayload, sharedSecretRef.current);
+    wsRef.current.send(JSON.stringify({
+      type: "callSignal",
+      payload: { roomId, encryptedPayload, iv }
+    }));
+  }, [roomId]);
+
+  const initPeerConnection = useCallback(() => {
+    const pc = new RTCPeerConnection({
+      iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
+    });
+
+    pc.onicecandidate = (event) => {
+      if (event.candidate) {
+        sendCallSignal({ type: 'candidate', candidate: event.candidate });
+      }
+    };
+
+    pc.ontrack = (event) => {
+      setCallState(prev => ({ ...prev, remoteStream: event.streams[0] }));
+    };
+
+    pcRef.current = pc;
+    return pc;
+  }, [sendCallSignal]);
+
+  const startCall = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      setCallState(prev => ({ ...prev, isCalling: true, localStream: stream }));
+      
+      const pc = initPeerConnection();
+      stream.getTracks().forEach(track => pc.addTrack(track, stream));
+      
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      sendCallSignal({ type: 'offer', offer });
+    } catch (err) {
+      console.error("Failed to start call", err);
+    }
+  };
+
+  const endCall = () => {
+    pcRef.current?.close();
+    pcRef.current = null;
+    callState.localStream?.getTracks().forEach(track => track.stop());
+    setCallState({
+      isCalling: false,
+      isReceiving: false,
+      remoteStream: null,
+      localStream: null,
+    });
+  };
 
   const connect = useCallback(async () => {
     if (wsRef.current) return;
@@ -133,7 +205,7 @@ export function useChat(roomId: string) {
               sharedSecretRef.current
             );
 
-            // Parse inner payload: { text: "...", destructTimer: 10 }
+            // Parse inner payload: { text: "...", image: "...", destructTimer: 10 }
             const innerPayload = JSON.parse(decryptedJson);
             const expiresAt = innerPayload.destructTimer 
               ? Date.now() + innerPayload.destructTimer * 1000 
@@ -142,12 +214,36 @@ export function useChat(roomId: string) {
             const newMessage: ChatMessage = {
               id: `${data.timestamp}-${Math.random().toString(36).substring(7)}`,
               text: innerPayload.text,
+              image: innerPayload.image,
               isMine: false,
               timestamp: data.timestamp,
               expiresAt,
             };
 
             setMessages((prev) => [...prev, newMessage]);
+          }
+          else if (parsed.type === "callSignal") {
+            const data = wsEvents.receive.callSignal.parse(parsed.payload);
+            if (!sharedSecretRef.current) return;
+            const decryptedJson = await decryptMessage(data.encryptedPayload, data.iv, sharedSecretRef.current);
+            const { signal } = JSON.parse(decryptedJson);
+
+            if (signal.type === 'offer') {
+              setCallState(prev => ({ ...prev, isReceiving: true }));
+              const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+              setCallState(prev => ({ ...prev, localStream: stream, isCalling: true }));
+              
+              const pc = initPeerConnection();
+              stream.getTracks().forEach(track => pc.addTrack(track, stream));
+              await pc.setRemoteDescription(new RTCSessionDescription(signal.offer));
+              const answer = await pc.createAnswer();
+              await pc.setLocalDescription(answer);
+              sendCallSignal({ type: 'answer', answer });
+            } else if (signal.type === 'answer') {
+              await pcRef.current?.setRemoteDescription(new RTCSessionDescription(signal.answer));
+            } else if (signal.type === 'candidate') {
+              await pcRef.current?.addIceCandidate(new RTCIceCandidate(signal.candidate));
+            }
           }
           else if (parsed.type === "typing") {
             const data = wsEvents.receive.typing.parse(parsed.payload);
@@ -157,6 +253,7 @@ export function useChat(roomId: string) {
             setConnectionState("waiting_for_peer");
             sharedSecretRef.current = null; // Key must be renegotiated
             setPeerIsTyping(false);
+            endCall();
           }
           else if (parsed.type === "error") {
             const data = wsEvents.receive.error.parse(parsed.payload);
@@ -173,7 +270,7 @@ export function useChat(roomId: string) {
       setConnectionState("error");
       setErrorMsg("Failed to initialize encryption");
     }
-  }, [roomId]);
+  }, [roomId, initPeerConnection, sendCallSignal]);
 
   useEffect(() => {
     connect();
@@ -182,17 +279,18 @@ export function useChat(roomId: string) {
         wsRef.current.send(JSON.stringify({ type: "leave", payload: { roomId } }));
         wsRef.current.close();
       }
+      endCall();
     };
   }, [connect, roomId]);
 
-  const sendMessage = async (text: string, destructTimer: number | null) => {
+  const sendMessage = async (content: { text?: string, image?: string }, destructTimer: number | null) => {
     if (!wsRef.current || !sharedSecretRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
       return false;
     }
 
     try {
       // 1. Prepare JSON payload
-      const innerPayload = JSON.stringify({ text, destructTimer });
+      const innerPayload = JSON.stringify({ ...content, destructTimer });
       
       // 2. Encrypt
       const { encryptedPayload, iv } = await encryptMessage(innerPayload, sharedSecretRef.current);
@@ -211,7 +309,7 @@ export function useChat(roomId: string) {
         ...prev,
         {
           id: `local-${Date.now()}`,
-          text,
+          ...content,
           isMine: true,
           timestamp: Date.now(),
           expiresAt,
@@ -236,7 +334,10 @@ export function useChat(roomId: string) {
     connectionState,
     peerIsTyping,
     errorMsg,
+    callState,
     sendMessage,
     sendTypingStatus,
+    startCall,
+    endCall,
   };
 }

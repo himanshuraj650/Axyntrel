@@ -42,7 +42,15 @@ export function MessageBubble({ message }: { message: ChatMessage }) {
             : "bg-secondary text-secondary-foreground rounded-bl-sm border border-border"
         )}
       >
-        {message.text}
+        {message.image && (
+          <img 
+            src={message.image} 
+            alt="Sent image" 
+            className="rounded-lg mb-2 max-w-full h-auto cursor-pointer hover:opacity-90 transition-opacity" 
+            onClick={() => window.open(message.image, '_blank')}
+          />
+        )}
+        {message.text && <div>{message.text}</div>}
         
         {message.expiresAt && (
           <div 
