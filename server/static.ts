@@ -7,7 +7,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 export function serveStatic(app: Express) {
-  const distPath = path.resolve(__dirname, "../dist");
+ const distPath = path.resolve(__dirname, "../client/dist");
 
   if (!fs.existsSync(distPath)) {
     throw new Error(
