@@ -18,6 +18,13 @@ export type ChatMessage = {
   expiresAt: number | null;
 };
 
+export type CallState = {
+  isCalling: boolean;
+  isReceiving: boolean;
+  remoteStream: MediaStream | null;
+  localStream: MediaStream | null;
+};
+
 export type ConnectionState =
   | "connecting"
   | "waiting_for_peer"
@@ -33,12 +40,20 @@ export function useChat(roomId: string) {
   const [peerIsTyping, setPeerIsTyping] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
+  // Dummy call state (UI still expects it)
+  const [callState] = useState<CallState>({
+    isCalling: false,
+    isReceiving: false,
+    remoteStream: null,
+    localStream: null,
+  });
+
   const wsRef = useRef<WebSocket | null>(null);
   const keyPairRef = useRef<CryptoKeyPair | null>(null);
   const sharedSecretRef = useRef<CryptoKey | null>(null);
   const myPublicKeyBase64Ref = useRef<string | null>(null);
 
-  // Auto delete expired messages
+  // Auto-delete expired messages
   useEffect(() => {
     const interval = setInterval(() => {
       const now = Date.now();
@@ -175,23 +190,18 @@ export function useChat(roomId: string) {
 
           else if (parsed.type === "typing") {
             const data = wsEvents.receive.typing.parse(parsed.payload);
-
             setPeerIsTyping(data.isTyping);
           }
 
           else if (parsed.type === "userLeft") {
             setConnectionState("waiting_for_peer");
-
             sharedSecretRef.current = null;
-
             setPeerIsTyping(false);
           }
 
           else if (parsed.type === "error") {
             const data = wsEvents.receive.error.parse(parsed.payload);
-
             setErrorMsg(data.message);
-
             setConnectionState("error");
           }
 
@@ -201,9 +211,7 @@ export function useChat(roomId: string) {
       };
     } catch (err) {
       console.error("Crypto init failed", err);
-
       setConnectionState("error");
-
       setErrorMsg("Failed to initialize encryption");
     }
   }, [roomId]);
@@ -285,12 +293,19 @@ export function useChat(roomId: string) {
     }
   };
 
+  // Dummy call functions so UI doesn't crash
+  const startCall = () => {};
+  const endCall = () => {};
+
   return {
     messages,
     connectionState,
     peerIsTyping,
     errorMsg,
+    callState,
     sendMessage,
     sendTypingStatus,
+    startCall,
+    endCall,
   };
 }
