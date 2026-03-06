@@ -1,42 +1,81 @@
-import { useEffect, useRef } from "react";
-import { useRoute } from "wouter";
+import { useEffect, useRef, useState } from "react";
+import { useRoute, Link } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
-import { ArrowLeft, Copy, CheckCircle2, Phone, Video, Lock, ShieldAlert, ShieldCheck } from "lucide-react";
+import {
+  ArrowLeft,
+  Copy,
+  CheckCircle2,
+  Phone,
+  Video,
+  PhoneOff,
+  Lock,
+  ShieldAlert,
+  ShieldCheck
+} from "lucide-react";
+
 import { useChat } from "@/hooks/use-chat";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { ChatInput } from "@/components/chat/chat-input";
 import { MessageBubble } from "@/components/chat/message-bubble";
-import { Link } from "wouter";
-import { useState } from "react";
 
 export default function Chat() {
+
   const [, params] = useRoute("/room/:id");
   const roomId = params?.id || "";
+
   const { toast } = useToast();
 
   const {
-  messages,
-  connectionState,
-  peerIsTyping,
-  errorMsg,
-  sendMessage,
-  sendTypingStatus,
-  startCall
-} = useChat(roomId);
+    messages,
+    connectionState,
+    peerIsTyping,
+    errorMsg,
+    callState,
+    sendMessage,
+    sendTypingStatus,
+    startCall,
+    endCall
+  } = useChat(roomId);
 
   const scrollRef = useRef<HTMLDivElement>(null);
+  const remoteVideoRef = useRef<HTMLVideoElement>(null);
+  const localVideoRef = useRef<HTMLVideoElement>(null);
+
   const [copied, setCopied] = useState(false);
 
-  // Auto scroll to bottom
+  /* attach streams */
+
   useEffect(() => {
+
+    if (remoteVideoRef.current && callState.remoteStream) {
+      remoteVideoRef.current.srcObject = callState.remoteStream;
+    }
+
+  }, [callState.remoteStream]);
+
+  useEffect(() => {
+
+    if (localVideoRef.current && callState.localStream) {
+      localVideoRef.current.srcObject = callState.localStream;
+    }
+
+  }, [callState.localStream]);
+
+  /* auto scroll */
+
+  useEffect(() => {
+
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
+
   }, [messages, peerIsTyping]);
 
   const copyRoomId = () => {
+
     navigator.clipboard.writeText(roomId);
+
     setCopied(true);
 
     toast({
@@ -45,24 +84,57 @@ export default function Chat() {
     });
 
     setTimeout(() => setCopied(false), 2000);
+
   };
 
-  // Status configuration
   const statusConfig = {
-    connecting: { color: "text-muted-foreground", text: "Connecting...", icon: Lock },
-    generating_keys: { color: "text-blue-400", text: "Generating Keys...", icon: Lock },
-    waiting_for_peer: { color: "text-amber-400", text: "Awaiting Peer", icon: ShieldAlert },
-    secured: { color: "text-primary", text: "E2EE Secured", icon: ShieldCheck },
-    disconnected: { color: "text-destructive", text: "Disconnected", icon: ShieldAlert },
-    error: { color: "text-destructive", text: "Connection Error", icon: ShieldAlert },
+
+    connecting: {
+      color: "text-muted-foreground",
+      text: "Connecting...",
+      icon: Lock
+    },
+
+    generating_keys: {
+      color: "text-blue-400",
+      text: "Generating Keys...",
+      icon: Lock
+    },
+
+    waiting_for_peer: {
+      color: "text-amber-400",
+      text: "Awaiting Peer",
+      icon: ShieldAlert
+    },
+
+    secured: {
+      color: "text-primary",
+      text: "E2EE Secured",
+      icon: ShieldCheck
+    },
+
+    disconnected: {
+      color: "text-destructive",
+      text: "Disconnected",
+      icon: ShieldAlert
+    },
+
+    error: {
+      color: "text-destructive",
+      text: "Connection Error",
+      icon: ShieldAlert
+    }
+
   };
 
   const currentStatus = statusConfig[connectionState];
   const StatusIcon = currentStatus.icon;
 
   if (errorMsg) {
+
     return (
       <div className="min-h-[100dvh] flex flex-col items-center justify-center p-4 bg-background">
+
         <ShieldAlert className="w-16 h-16 text-destructive mb-4" />
 
         <h2 className="text-xl font-mono font-bold mb-2">
@@ -75,144 +147,181 @@ export default function Chat() {
 
         <Link
           href="/"
-          className="px-6 py-2 rounded-lg bg-primary text-primary-foreground font-medium hover-elevate"
+          className="px-6 py-2 rounded-lg bg-primary text-primary-foreground font-medium"
         >
           Return Home
         </Link>
+
       </div>
     );
+
   }
 
   return (
+
     <div className="h-[100dvh] flex flex-col bg-background">
 
-      {/* Header */}
+      {/* HEADER */}
+
       <header className="flex-none h-16 border-b border-border bg-card/50 backdrop-blur-md flex items-center justify-between px-4">
 
-  {/* LEFT SIDE */}
-  <div className="flex items-center gap-3">
+        {/* LEFT */}
 
-    <Link
-      href="/"
-      className="text-muted-foreground hover:text-foreground transition-colors p-2 -ml-2 rounded-lg hover:bg-accent"
-    >
-      <ArrowLeft className="w-5 h-5" />
-    </Link>
+        <div className="flex items-center gap-3">
 
-    <div className="flex flex-col">
+          <Link
+            href="/"
+            className="text-muted-foreground hover:text-foreground p-2 rounded-lg"
+          >
+            <ArrowLeft className="w-5 h-5" />
+          </Link>
 
-      <div
-        className="flex items-center gap-2 group cursor-pointer"
-        onClick={copyRoomId}
-      >
-        <h1 className="font-mono font-bold text-sm tracking-widest">
-          ID: {roomId}
-        </h1>
+          <div className="flex flex-col">
 
-        {copied ? (
-          <CheckCircle2 className="w-3.5 h-3.5 text-primary" />
-        ) : (
-          <Copy className="w-3.5 h-3.5 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
-        )}
-      </div>
-
-      <div className={`flex items-center gap-1.5 text-[11px] font-medium font-mono uppercase tracking-wider ${currentStatus.color}`}>
-        <StatusIcon className="w-3 h-3" />
-        <span>{currentStatus.text}</span>
-      </div>
-
-    </div>
-  </div>
-
-
-  {/* RIGHT SIDE */}
-  <div className="flex items-center gap-2">
-
-    <Button
-      variant="ghost"
-      size="icon"
-      onClick={() => startCall(false)}
-      title="Voice Call"
-    >
-      <Phone className="w-5 h-5" />
-    </Button>
-
-    <Button
-      variant="ghost"
-      size="icon"
-      onClick={() => startCall(true)}
-      title="Video Call"
-    >
-      <Video className="w-5 h-5" />
-    </Button>
-
-  </div>
-
-</header>
-      {/* Chat Area */}
-      <main
-        ref={scrollRef}
-        className="flex-1 overflow-y-auto overflow-x-hidden p-4 bg-grid-pattern scroll-smooth"
-      >
-
-        <div className="max-w-3xl mx-auto flex flex-col min-h-full pb-4">
-
-          {messages.length === 0 && connectionState === "secured" && (
-            <div className="flex-1 flex flex-col items-center justify-center text-center text-muted-foreground opacity-50 select-none">
-
-              <ShieldCheck className="w-16 h-16 mb-4 text-primary" />
-
-              <p className="font-mono text-sm max-w-xs">
-                Connection secured with end-to-end encryption.
-                Messages exist only on these devices.
-              </p>
-
-            </div>
-          )}
-
-          <AnimatePresence initial={false}>
-            {messages.map((msg) => (
-              <MessageBubble key={msg.id} message={msg} />
-            ))}
-          </AnimatePresence>
-
-          {/* Typing Indicator */}
-          {peerIsTyping && (
-            <motion.div
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="flex items-center gap-1 mt-4 text-muted-foreground/70"
+            <div
+              className="flex items-center gap-2 cursor-pointer"
+              onClick={copyRoomId}
             >
 
-              <div className="w-1.5 h-1.5 rounded-full bg-current animate-bounce" />
-              <div className="w-1.5 h-1.5 rounded-full bg-current animate-bounce delay-150" />
-              <div className="w-1.5 h-1.5 rounded-full bg-current animate-bounce delay-300" />
+              <h1 className="font-mono font-bold text-sm">
+                ID: {roomId}
+              </h1>
 
-            </motion.div>
+              {copied ? (
+                <CheckCircle2 className="w-3.5 h-3.5 text-primary" />
+              ) : (
+                <Copy className="w-3.5 h-3.5 text-muted-foreground" />
+              )}
+
+            </div>
+
+            <div className={`flex items-center gap-1 text-xs ${currentStatus.color}`}>
+
+              <StatusIcon className="w-3 h-3" />
+              {currentStatus.text}
+
+            </div>
+
+          </div>
+
+        </div>
+
+        {/* RIGHT */}
+
+        <div className="flex items-center gap-2">
+
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => startCall(false)}
+          >
+            <Phone className="w-5 h-5" />
+          </Button>
+
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => startCall(true)}
+          >
+            <Video className="w-5 h-5" />
+          </Button>
+
+          {callState.isCalling && (
+
+            <Button
+              variant="destructive"
+              size="icon"
+              onClick={endCall}
+            >
+              <PhoneOff className="w-5 h-5" />
+            </Button>
+
           )}
 
         </div>
-      </main>
 
-      {/* Input */}
-      <div className="flex-none">
+      </header>
 
-        <ChatInput
-          onSendMessage={(text, timer) =>
-            sendMessage({ text }, timer)
-          }
 
-          onSendImage={(image, timer) =>
-            sendMessage({ image }, timer)
-          }
+      {/* CALL UI */}
 
-          onTyping={sendTypingStatus}
+      {callState.remoteStream && (
 
-          disabled={connectionState !== "secured"}
+        <div className="bg-black flex justify-center items-center">
+
+          <video
+            ref={remoteVideoRef}
+            autoPlay
+            playsInline
+            className="w-full max-h-[300px]"
+          />
+
+        </div>
+
+      )}
+
+      {callState.localStream && (
+
+        <video
+          ref={localVideoRef}
+          autoPlay
+          muted
+          playsInline
+          className="w-28 fixed bottom-24 right-4 rounded-lg border"
         />
 
-      </div>
+      )}
+
+
+      {/* CHAT */}
+
+      <main
+        ref={scrollRef}
+        className="flex-1 overflow-y-auto p-4"
+      >
+
+        <div className="max-w-3xl mx-auto flex flex-col pb-4">
+
+          <AnimatePresence>
+
+            {messages.map((msg) => (
+              <MessageBubble key={msg.id} message={msg} />
+            ))}
+
+          </AnimatePresence>
+
+          {peerIsTyping && (
+
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="text-muted-foreground text-sm"
+            >
+              typing...
+            </motion.div>
+
+          )}
+
+        </div>
+
+      </main>
+
+
+      {/* INPUT */}
+
+      <ChatInput
+        onSendMessage={(text, timer) =>
+          sendMessage({ text }, timer)
+        }
+        onSendImage={(image, timer) =>
+          sendMessage({ image }, timer)
+        }
+        onTyping={sendTypingStatus}
+        disabled={connectionState !== "secured"}
+      />
 
     </div>
+
   );
+
 }
