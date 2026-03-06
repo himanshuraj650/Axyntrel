@@ -303,28 +303,39 @@ export function useChat(roomId: string) {
 
   /* ---------------------- send message ---------------------- */
 
-  const sendMessage = async (
-    content: { text?: string; image?: string },
-    destructTimer: number | null
-  ) => {
-    if (!wsRef.current || !sharedSecretRef.current) return false;
+ const sendMessage = async (
+  content: { text?: string; image?: string },
+  destructTimer: number | null
+) => {
+  if (!wsRef.current || !sharedSecretRef.current) return false;
 
-    const innerPayload = JSON.stringify({ ...content, destructTimer });
+  const innerPayload = JSON.stringify({ ...content, destructTimer });
 
-    const { encryptedPayload, iv } = await encryptMessage(
-      innerPayload,
-      sharedSecretRef.current
-    );
+  const { encryptedPayload, iv } = await encryptMessage(
+    innerPayload,
+    sharedSecretRef.current
+  );
 
-    wsRef.current.send(
-      JSON.stringify({
-        type: "message",
-        payload: { roomId, encryptedPayload, iv },
-      })
-    );
+  wsRef.current.send(
+    JSON.stringify({
+      type: "message",
+      payload: { roomId, encryptedPayload, iv },
+    })
+  );
 
-    return true;
+  // ADD THIS (shows message on your device)
+  const newMessage: ChatMessage = {
+    id: `local-${Date.now()}`,
+    ...content,
+    isMine: true,
+    timestamp: Date.now(),
+    expiresAt: null,
   };
+
+  setMessages((prev) => [...prev, newMessage]);
+
+  return true;
+};
 
   const sendTypingStatus = (isTyping: boolean) => {
     wsRef.current?.send(

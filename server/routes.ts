@@ -118,18 +118,17 @@ export async function registerRoutes(
 
   const roomClients = roomsMap.get(currentRoomId)!;
 
+  // relay signal directly
   const msg = JSON.stringify({
     type: "callSignal",
-    payload
+    payload: payload
   });
 
-  // Relay WebRTC signaling to other peers
   roomClients.forEach(client => {
     if (client !== ws && client.readyState === WebSocket.OPEN) {
       client.send(msg);
     }
   });
-
 }
       } catch (err) {
         console.error("WS error:", err);
