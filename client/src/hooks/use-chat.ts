@@ -56,8 +56,6 @@ export function useChat(roomId: string) {
   const sharedSecretRef = useRef<CryptoKey | null>(null);
   const myPublicKeyBase64Ref = useRef<string | null>(null);
 
-  const pendingCandidates = useRef<RTCIceCandidate[]>([]);
-
   /* AUTO DELETE */
 
   useEffect(() => {
@@ -84,7 +82,7 @@ export function useChat(roomId: string) {
       iceServers: [
         { urls: "stun:stun.l.google.com:19302" },
         { urls: "stun:stun1.l.google.com:19302" },
-        { urls: "stun:stun2.l.google.com:19302" },
+        { urls: "stun:stun2.l.google.com:19302" }
       ]
     });
 
@@ -127,37 +125,51 @@ export function useChat(roomId: string) {
 
   const startCall = async (video = true) => {
 
-  const stream = await navigator.mediaDevices.getUserMedia({
-    video,
-    audio: true
-  });
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video,
+      audio: true
+    });
 
-  setCallState({
-    isCalling: true,
-    isReceiving: false,
-    localStream: stream,
-    remoteStream: null
-  });
+    setCallState({
+      isCalling: true,
+      isReceiving: false,
+      localStream: stream,
+      remoteStream: null
+    });
 
-  createPeerConnection();
+    createPeerConnection();
 
-  stream.getTracks().forEach(track => {
-    pcRef.current?.addTrack(track, stream);
-  });
+    stream.getTracks().forEach(track => {
+      pcRef.current?.addTrack(track, stream);
+    });
 
-  const offer = await pcRef.current!.createOffer({
-    offerToReceiveAudio: true,
-    offerToReceiveVideo: true
-  });
+    const offer = await pcRef.current!.createOffer();
 
-  await pcRef.current!.setLocalDescription(offer);
+    await pcRef.current!.setLocalDescription(offer);
 
-  wsRef.current?.send(JSON.stringify({
-    type: "callSignal",
-    payload: { offer, roomId, video }
-  }));
+    wsRef.current?.send(JSON.stringify({
+      type: "callSignal",
+      payload: { offer, roomId, video }
+    }));
 
-};
+  };
+
+  /* END CALL */
+
+  const endCall = () => {
+
+    pcRef.current?.close();
+
+    callState.localStream?.getTracks().forEach(track => track.stop());
+
+    setCallState({
+      isCalling: false,
+      isReceiving: false,
+      remoteStream: null,
+      localStream: null
+    });
+
+  };
 
   /* WEBSOCKET */
 
