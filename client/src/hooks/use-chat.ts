@@ -58,7 +58,7 @@ export function useChat(roomId: string) {
 
   const pendingCandidates = useRef<RTCIceCandidate[]>([]);
 
-  /* AUTO DELETE */
+  /* AUTO DELETE MESSAGES */
 
   useEffect(() => {
 
@@ -67,9 +67,7 @@ export function useChat(roomId: string) {
       const now = Date.now();
 
       setMessages(prev =>
-        prev.filter(msg =>
-          msg.expiresAt === null || msg.expiresAt > now
-        )
+        prev.filter(m => m.expiresAt === null || m.expiresAt > now)
       );
 
     }, 1000);
@@ -121,10 +119,6 @@ export function useChat(roomId: string) {
 
     };
 
-    pc.onconnectionstatechange = () => {
-      console.log("WebRTC state:", pc.connectionState);
-    };
-
     pcRef.current = pc;
 
   };
@@ -154,6 +148,8 @@ export function useChat(roomId: string) {
     const offer = await pcRef.current!.createOffer();
 
     await pcRef.current!.setLocalDescription(offer);
+
+    await new Promise(r => setTimeout(r, 200));
 
     wsRef.current?.send(JSON.stringify({
       type: "callSignal",
@@ -224,8 +220,6 @@ export function useChat(roomId: string) {
 
         const parsed = JSON.parse(event.data);
 
-        /* USER JOINED */
-
         if (parsed.type === "userJoined") {
 
           const data = wsEvents.receive.userJoined.parse(parsed.payload);
@@ -243,8 +237,6 @@ export function useChat(roomId: string) {
           }
 
         }
-
-        /* KEY EXCHANGE */
 
         else if (parsed.type === "publicKey") {
 
@@ -269,8 +261,6 @@ export function useChat(roomId: string) {
           }
 
         }
-
-        /* MESSAGE */
 
         else if (parsed.type === "message") {
 
@@ -303,16 +293,12 @@ export function useChat(roomId: string) {
 
         }
 
-        /* TYPING */
-
         else if (parsed.type === "typing") {
 
           const data = wsEvents.receive.typing.parse(parsed.payload);
           setPeerIsTyping(data.isTyping);
 
         }
-
-        /* CALL SIGNAL */
 
         else if (parsed.type === "callSignal") {
 
@@ -364,6 +350,12 @@ export function useChat(roomId: string) {
             await pcRef.current?.setRemoteDescription(
               new RTCSessionDescription(signal.answer)
             );
+
+            for (const c of pendingCandidates.current) {
+              await pcRef.current?.addIceCandidate(c);
+            }
+
+            pendingCandidates.current = [];
 
           }
 
