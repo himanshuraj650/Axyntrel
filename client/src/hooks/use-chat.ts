@@ -80,45 +80,58 @@ export function useChat(roomId: string) {
 
   const createPeerConnection = () => {
 
-    const pc = new RTCPeerConnection({
-      iceServers: [
-        { urls: "stun:stun.l.google.com:19302" },
-        { urls: "stun:stun1.l.google.com:19302" },
-        { urls: "stun:stun2.l.google.com:19302" }
-      ]
+  const pc = new RTCPeerConnection({
+    iceServers: [
+      { urls: "stun:stun.l.google.com:19302" },
+      { urls: "stun:stun1.l.google.com:19302" },
+      { urls: "stun:stun2.l.google.com:19302" }
+    ]
+  });
+
+  const remoteStream = new MediaStream();
+
+  pc.ontrack = (event) => {
+
+    event.streams[0].getTracks().forEach(track => {
+      remoteStream.addTrack(track);
     });
 
-    pc.ontrack = (event) => {
-      setCallState((prev) => ({
-        ...prev,
-        remoteStream: event.streams[0]
-      }));
-    };
-
-    pc.onicecandidate = (event) => {
-
-      if (event.candidate && wsRef.current) {
-
-        wsRef.current.send(JSON.stringify({
-          type: "callSignal",
-          payload: {
-            candidate: event.candidate,
-            roomId
-          }
-        }));
-
-      }
-
-    };
-
-    pc.onconnectionstatechange = () => {
-      console.log("WebRTC state:", pc.connectionState);
-    };
-
-    pcRef.current = pc;
+    setCallState(prev => ({
+      ...prev,
+      remoteStream
+    }));
 
   };
 
+  pc.onicecandidate = (event) => {
+
+    if (event.candidate && wsRef.current) {
+
+      wsRef.current.send(JSON.stringify({
+        type: "callSignal",
+        payload: {
+          candidate: event.candidate,
+          roomId
+        }
+      }));
+
+    }
+
+  };
+
+  pc.onconnectionstatechange = () => {
+
+    console.log("WebRTC state:", pc.connectionState);
+
+    if (pc.connectionState === "failed") {
+      pc.restartIce();
+    }
+
+  };
+
+  pcRef.current = pc;
+
+};
   /* START CALL */
 
   const startCall = async (video: boolean = true) => {

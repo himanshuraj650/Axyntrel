@@ -56,11 +56,17 @@ export default function Chat() {
 
   useEffect(() => {
 
-    if (localVideoRef.current && callState.localStream) {
-      localVideoRef.current.srcObject = callState.localStream;
-    }
+  if (remoteVideoRef.current && callState.remoteStream) {
 
-  }, [callState.localStream]);
+    remoteVideoRef.current.srcObject = callState.remoteStream;
+
+    remoteVideoRef.current.play().catch(() => {
+      console.log("Autoplay blocked");
+    });
+
+  }
+
+}, [callState.remoteStream]);
 
   /* auto scroll */
 
@@ -250,12 +256,12 @@ export default function Chat() {
         <div className="bg-black flex justify-center items-center">
 
           <video
-            ref={remoteVideoRef}
-            autoPlay
-            playsInline
-            className="w-full max-h-[300px]"
-          />
-
+  ref={remoteVideoRef}
+  autoPlay
+  playsInline
+  controls={false}
+  className="w-full h-[300px] bg-black"
+/>
         </div>
 
       )}
