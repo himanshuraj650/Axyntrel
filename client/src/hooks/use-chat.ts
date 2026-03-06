@@ -46,7 +46,7 @@ export function useChat(roomId: string) {
     isCalling: false,
     isReceiving: false,
     remoteStream: null,
-    localStream: null,
+    localStream: null
   });
 
   const wsRef = useRef<WebSocket | null>(null);
@@ -85,20 +85,23 @@ export function useChat(roomId: string) {
     const pc = new RTCPeerConnection({
       iceServers: [
         { urls: "stun:stun.l.google.com:19302" },
-        { urls: "stun:stun1.l.google.com:19302" }
+        { urls: "stun:stun1.l.google.com:19302" },
+        { urls: "stun:stun2.l.google.com:19302" }
       ]
     });
 
+    const remoteStream = new MediaStream();
+
     pc.ontrack = (event) => {
 
-      if (event.streams && event.streams[0]) {
+      event.streams[0].getTracks().forEach(track => {
+        remoteStream.addTrack(track);
+      });
 
-        setCallState(prev => ({
-          ...prev,
-          remoteStream: event.streams[0]
-        }));
-
-      }
+      setCallState(prev => ({
+        ...prev,
+        remoteStream
+      }));
 
     };
 
@@ -116,6 +119,10 @@ export function useChat(roomId: string) {
 
       }
 
+    };
+
+    pc.onconnectionstatechange = () => {
+      console.log("WebRTC state:", pc.connectionState);
     };
 
     pcRef.current = pc;
@@ -192,7 +199,6 @@ export function useChat(roomId: string) {
         window.location.protocol === "https:" ? "wss:" : "ws:";
 
       const ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
-
       wsRef.current = ws;
 
       ws.onopen = () => {
@@ -302,7 +308,6 @@ export function useChat(roomId: string) {
         else if (parsed.type === "typing") {
 
           const data = wsEvents.receive.typing.parse(parsed.payload);
-
           setPeerIsTyping(data.isTyping);
 
         }
@@ -333,7 +338,15 @@ export function useChat(roomId: string) {
               pcRef.current?.addTrack(track, stream);
             });
 
-            await pcRef.current!.setRemoteDescription(signal.offer);
+            await pcRef.current!.setRemoteDescription(
+              new RTCSessionDescription(signal.offer)
+            );
+
+            for (const c of pendingCandidates.current) {
+              await pcRef.current?.addIceCandidate(c);
+            }
+
+            pendingCandidates.current = [];
 
             const answer = await pcRef.current!.createAnswer();
 
@@ -348,19 +361,21 @@ export function useChat(roomId: string) {
 
           if (signal.answer) {
 
-            await pcRef.current?.setRemoteDescription(signal.answer);
+            await pcRef.current?.setRemoteDescription(
+              new RTCSessionDescription(signal.answer)
+            );
 
           }
 
           if (signal.candidate) {
 
-            try {
+            if (pcRef.current?.remoteDescription) {
 
-              await pcRef.current?.addIceCandidate(signal.candidate);
+              await pcRef.current.addIceCandidate(signal.candidate);
 
-            } catch {
+            } else {
 
-              console.log("ICE ignored");
+              pendingCandidates.current.push(signal.candidate);
 
             }
 
@@ -373,7 +388,6 @@ export function useChat(roomId: string) {
     } catch (err) {
 
       console.error(err);
-
       setConnectionState("error");
 
     }
