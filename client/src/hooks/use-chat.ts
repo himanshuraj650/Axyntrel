@@ -38,6 +38,7 @@ export function useChat(roomId: string) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [connectionState, setConnectionState] =
     useState<ConnectionState>("connecting");
+
   const [peerIsTyping, setPeerIsTyping] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
@@ -45,7 +46,7 @@ export function useChat(roomId: string) {
     isCalling: false,
     isReceiving: false,
     remoteStream: null,
-    localStream: null
+    localStream: null,
   });
 
   const wsRef = useRef<WebSocket | null>(null);
@@ -66,7 +67,9 @@ export function useChat(roomId: string) {
       const now = Date.now();
 
       setMessages(prev =>
-        prev.filter(m => m.expiresAt === null || m.expiresAt > now)
+        prev.filter(msg =>
+          msg.expiresAt === null || msg.expiresAt > now
+        )
       );
 
     }, 1000);
@@ -87,8 +90,6 @@ export function useChat(roomId: string) {
     });
 
     pc.ontrack = (event) => {
-
-      console.log("Remote stream received");
 
       if (event.streams && event.streams[0]) {
 
@@ -182,7 +183,6 @@ export function useChat(roomId: string) {
       setConnectionState("generating_keys");
 
       const keyPair = await generateKeyPair();
-
       keyPairRef.current = keyPair;
 
       myPublicKeyBase64Ref.current =
@@ -218,9 +218,98 @@ export function useChat(roomId: string) {
 
         const parsed = JSON.parse(event.data);
 
+        /* USER JOINED */
+
+        if (parsed.type === "userJoined") {
+
+          const data = wsEvents.receive.userJoined.parse(parsed.payload);
+
+          if (data.clientsCount > 1) {
+
+            wsRef.current?.send(JSON.stringify({
+              type: "publicKey",
+              payload: {
+                roomId,
+                publicKey: myPublicKeyBase64Ref.current
+              }
+            }));
+
+          }
+
+        }
+
+        /* KEY EXCHANGE */
+
+        else if (parsed.type === "publicKey") {
+
+          const data = wsEvents.receive.publicKey.parse(parsed.payload);
+
+          if (
+            keyPairRef.current &&
+            data.publicKey !== myPublicKeyBase64Ref.current
+          ) {
+
+            const peerKey = await importPublicKey(data.publicKey);
+
+            const secret = await deriveSecret(
+              keyPairRef.current.privateKey,
+              peerKey
+            );
+
+            sharedSecretRef.current = secret;
+
+            setConnectionState("secured");
+
+          }
+
+        }
+
+        /* MESSAGE */
+
+        else if (parsed.type === "message") {
+
+          const data = wsEvents.receive.message.parse(parsed.payload);
+
+          const decryptedJson = await decryptMessage(
+            data.encryptedPayload,
+            data.iv,
+            sharedSecretRef.current!
+          );
+
+          const payload = JSON.parse(decryptedJson);
+
+          const expiresAt =
+            payload.destructTimer
+              ? Date.now() + payload.destructTimer * 1000
+              : null;
+
+          setMessages(prev => [
+            ...prev,
+            {
+              id: `${data.timestamp}-${Math.random()}`,
+              text: payload.text,
+              image: payload.image,
+              isMine: false,
+              timestamp: data.timestamp,
+              expiresAt
+            }
+          ]);
+
+        }
+
+        /* TYPING */
+
+        else if (parsed.type === "typing") {
+
+          const data = wsEvents.receive.typing.parse(parsed.payload);
+
+          setPeerIsTyping(data.isTyping);
+
+        }
+
         /* CALL SIGNAL */
 
-        if (parsed.type === "callSignal") {
+        else if (parsed.type === "callSignal") {
 
           const signal = parsed.payload;
 
@@ -302,14 +391,60 @@ export function useChat(roomId: string) {
 
   }, [connect]);
 
+  /* SEND MESSAGE */
+
+  const sendMessage = async (
+    content: { text?: string; image?: string },
+    destructTimer: number | null
+  ) => {
+
+    if (!wsRef.current || !sharedSecretRef.current) return false;
+
+    const innerPayload = JSON.stringify({ ...content, destructTimer });
+
+    const { encryptedPayload, iv } =
+      await encryptMessage(innerPayload, sharedSecretRef.current);
+
+    wsRef.current.send(JSON.stringify({
+      type: "message",
+      payload: { roomId, encryptedPayload, iv }
+    }));
+
+    const expiresAt =
+      destructTimer ? Date.now() + destructTimer * 1000 : null;
+
+    setMessages(prev => [
+      ...prev,
+      {
+        id: `local-${Date.now()}`,
+        ...content,
+        isMine: true,
+        timestamp: Date.now(),
+        expiresAt
+      }
+    ]);
+
+    return true;
+
+  };
+
+  const sendTypingStatus = (isTyping: boolean) => {
+
+    wsRef.current?.send(JSON.stringify({
+      type: "typing",
+      payload: { roomId, isTyping }
+    }));
+
+  };
+
   return {
     messages,
     connectionState,
     peerIsTyping,
     errorMsg,
     callState,
-    sendMessage: () => {},
-    sendTypingStatus: () => {},
+    sendMessage,
+    sendTypingStatus,
     startCall,
     endCall
   };
