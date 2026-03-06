@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import { useRoute } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
-import { ShieldAlert, ShieldCheck, Copy, CheckCircle2, Lock, ArrowLeft } from "lucide-react";
+import { ArrowLeft, Copy, CheckCircle2, Phone, Video } from "lucide-react";
 import { useChat } from "@/hooks/use-chat";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
@@ -87,6 +87,27 @@ export default function Chat() {
 
       {/* Header */}
       <header className="flex-none h-16 border-b border-border bg-card/50 backdrop-blur-md flex items-center justify-between px-4">
+      <div className="flex items-center gap-2">
+
+  <Button
+    variant="ghost"
+    size="icon"
+    onClick={() => startCall(false)}
+    title="Voice Call"
+  >
+    <Phone className="w-5 h-5" />
+  </Button>
+
+  <Button
+    variant="ghost"
+    size="icon"
+    onClick={() => startCall(true)}
+    title="Video Call"
+  >
+    <Video className="w-5 h-5" />
+  </Button>
+
+</div>
 
         <div className="flex items-center gap-3">
 
