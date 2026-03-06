@@ -34,14 +34,15 @@ export type ConnectionState =
   | "error";
 
 export function useChat(roomId: string) {
+
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [connectionState, setConnectionState] =
     useState<ConnectionState>("connecting");
+
   const [peerIsTyping, setPeerIsTyping] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  // Dummy call state (UI still expects it)
-  const [callState] = useState<CallState>({
+  const [callState, setCallState] = useState<CallState>({
     isCalling: false,
     isReceiving: false,
     remoteStream: null,
@@ -52,58 +53,137 @@ export function useChat(roomId: string) {
   const keyPairRef = useRef<CryptoKeyPair | null>(null);
   const sharedSecretRef = useRef<CryptoKey | null>(null);
   const myPublicKeyBase64Ref = useRef<string | null>(null);
+  const pcRef = useRef<RTCPeerConnection | null>(null);
 
-  // Auto-delete expired messages
+  const createPeerConnection = () => {
+    const pc = new RTCPeerConnection({
+      iceServers: [
+        { urls: "stun:stun.l.google.com:19302" },
+        {
+          urls: "turn:openrelay.metered.ca:80",
+          username: "openrelayproject",
+          credential: "openrelayproject"
+        }
+      ]
+    });
+
+    pc.ontrack = (event) => {
+      setCallState((prev) => ({
+        ...prev,
+        remoteStream: event.streams[0]
+      }));
+    };
+
+    pc.onicecandidate = (event) => {
+      if (event.candidate && wsRef.current) {
+        wsRef.current.send(JSON.stringify({
+          type: "callSignal",
+          payload: { candidate: event.candidate }
+        }));
+      }
+    };
+
+    pcRef.current = pc;
+  };
+
+  const startCall = async (video: boolean = true) => {
+
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video,
+      audio: true
+    });
+
+    setCallState({
+      isCalling: true,
+      isReceiving: false,
+      localStream: stream,
+      remoteStream: null
+    });
+
+    createPeerConnection();
+
+    stream.getTracks().forEach(track => {
+      pcRef.current?.addTrack(track, stream);
+    });
+
+    const offer = await pcRef.current!.createOffer();
+    await pcRef.current!.setLocalDescription(offer);
+
+    wsRef.current?.send(JSON.stringify({
+      type: "callSignal",
+      payload: { offer }
+    }));
+  };
+
+  const endCall = () => {
+
+    pcRef.current?.close();
+
+    callState.localStream?.getTracks().forEach(track => track.stop());
+
+    setCallState({
+      isCalling: false,
+      isReceiving: false,
+      remoteStream: null,
+      localStream: null
+    });
+  };
+
   useEffect(() => {
+
     const interval = setInterval(() => {
+
       const now = Date.now();
 
-      setMessages((prev) => {
+      setMessages(prev => {
         const filtered = prev.filter(
-          (msg) => msg.expiresAt === null || msg.expiresAt > now
+          msg => msg.expiresAt === null || msg.expiresAt > now
         );
         return filtered.length === prev.length ? prev : filtered;
       });
+
     }, 1000);
 
     return () => clearInterval(interval);
+
   }, []);
 
   const connect = useCallback(async () => {
+
     if (wsRef.current) return;
 
     try {
+
       setConnectionState("generating_keys");
 
       const keyPair = await generateKeyPair();
       keyPairRef.current = keyPair;
 
-      myPublicKeyBase64Ref.current = await exportPublicKey(keyPair.publicKey);
+      myPublicKeyBase64Ref.current =
+        await exportPublicKey(keyPair.publicKey);
 
-      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+      const protocol =
+        window.location.protocol === "https:" ? "wss:" : "ws:";
+
       const host = window.location.host || "localhost:5000";
 
-      const wsUrl = `${protocol}//${host}/ws`;
-
-      const ws = new WebSocket(wsUrl);
+      const ws = new WebSocket(`${protocol}//${host}/ws`);
       wsRef.current = ws;
 
       ws.onopen = () => {
+
         setConnectionState("waiting_for_peer");
 
-        ws.send(
-          JSON.stringify({
-            type: "join",
-            payload: { roomId },
-          })
-        );
+        ws.send(JSON.stringify({
+          type: "join",
+          payload: { roomId }
+        }));
 
-        ws.send(
-          JSON.stringify({
-            type: "publicKey",
-            payload: { roomId, publicKey: myPublicKeyBase64Ref.current },
-          })
-        );
+        ws.send(JSON.stringify({
+          type: "publicKey",
+          payload: { roomId, publicKey: myPublicKeyBase64Ref.current }
+        }));
+
       };
 
       ws.onclose = () => {
@@ -118,32 +198,20 @@ export function useChat(roomId: string) {
       };
 
       ws.onmessage = async (event) => {
+
         try {
+
           const parsed = JSON.parse(event.data);
 
-          if (parsed.type === "userJoined") {
-            const data = wsEvents.receive.userJoined.parse(parsed.payload);
+          if (parsed.type === "publicKey") {
 
-            if (data.clientsCount > 1) {
-              ws.send(
-                JSON.stringify({
-                  type: "publicKey",
-                  payload: {
-                    roomId,
-                    publicKey: myPublicKeyBase64Ref.current,
-                  },
-                })
-              );
-            }
-          }
-
-          else if (parsed.type === "publicKey") {
             const data = wsEvents.receive.publicKey.parse(parsed.payload);
 
             if (
               keyPairRef.current &&
               data.publicKey !== myPublicKeyBase64Ref.current
             ) {
+
               const peerKey = await importPublicKey(data.publicKey);
 
               const secret = await deriveSecret(
@@ -157,35 +225,78 @@ export function useChat(roomId: string) {
             }
           }
 
+          else if (parsed.type === "callSignal") {
+
+            const signal = parsed.payload;
+
+            if (signal.offer) {
+
+              const stream = await navigator.mediaDevices.getUserMedia({
+                audio: true,
+                video: true
+              });
+
+              setCallState({
+                isCalling: true,
+                isReceiving: true,
+                localStream: stream,
+                remoteStream: null
+              });
+
+              createPeerConnection();
+
+              stream.getTracks().forEach(track => {
+                pcRef.current?.addTrack(track, stream);
+              });
+
+              await pcRef.current!.setRemoteDescription(signal.offer);
+
+              const answer = await pcRef.current!.createAnswer();
+              await pcRef.current!.setLocalDescription(answer);
+
+              wsRef.current?.send(JSON.stringify({
+                type: "callSignal",
+                payload: { answer }
+              }));
+            }
+
+            if (signal.answer) {
+              await pcRef.current?.setRemoteDescription(signal.answer);
+            }
+
+            if (signal.candidate) {
+              await pcRef.current?.addIceCandidate(signal.candidate);
+            }
+          }
+
           else if (parsed.type === "message") {
+
             const data = wsEvents.receive.message.parse(parsed.payload);
 
             if (!sharedSecretRef.current) return;
 
-            const decryptedJson = await decryptMessage(
+            const decrypted = await decryptMessage(
               data.encryptedPayload,
               data.iv,
               sharedSecretRef.current
             );
 
-            const innerPayload = JSON.parse(decryptedJson);
+            const payload = JSON.parse(decrypted);
 
-            const expiresAt = innerPayload.destructTimer
-              ? Date.now() + innerPayload.destructTimer * 1000
+            const expiresAt = payload.destructTimer
+              ? Date.now() + payload.destructTimer * 1000
               : null;
 
             const newMessage: ChatMessage = {
-              id: `${data.timestamp}-${Math.random()
-                .toString(36)
-                .substring(7)}`,
-              text: innerPayload.text,
-              image: innerPayload.image,
+              id: `${data.timestamp}-${Math.random()}`,
+              text: payload.text,
+              image: payload.image,
               isMine: false,
               timestamp: data.timestamp,
-              expiresAt,
+              expiresAt
             };
 
-            setMessages((prev) => [...prev, newMessage]);
+            setMessages(prev => [...prev, newMessage]);
           }
 
           else if (parsed.type === "typing") {
@@ -193,109 +304,71 @@ export function useChat(roomId: string) {
             setPeerIsTyping(data.isTyping);
           }
 
-          else if (parsed.type === "userLeft") {
-            setConnectionState("waiting_for_peer");
-            sharedSecretRef.current = null;
-            setPeerIsTyping(false);
-          }
-
-          else if (parsed.type === "error") {
-            const data = wsEvents.receive.error.parse(parsed.payload);
-            setErrorMsg(data.message);
-            setConnectionState("error");
-          }
-
         } catch (err) {
-          console.error("Failed to handle WS message", err);
+          console.error("WS parse error:", err);
         }
+
       };
+
     } catch (err) {
+
       console.error("Crypto init failed", err);
+
       setConnectionState("error");
       setErrorMsg("Failed to initialize encryption");
+
     }
+
   }, [roomId]);
 
   useEffect(() => {
+
     connect();
 
     return () => {
-      if (wsRef.current) {
-        wsRef.current.send(
-          JSON.stringify({
-            type: "leave",
-            payload: { roomId },
-          })
-        );
-
-        wsRef.current.close();
-      }
+      wsRef.current?.close();
+      endCall();
     };
-  }, [connect, roomId]);
+
+  }, [connect]);
 
   const sendMessage = async (
     content: { text?: string; image?: string },
     destructTimer: number | null
   ) => {
+
     if (
       !wsRef.current ||
       !sharedSecretRef.current ||
       wsRef.current.readyState !== WebSocket.OPEN
-    ) {
-      return false;
-    }
+    ) return false;
 
-    try {
-      const innerPayload = JSON.stringify({ ...content, destructTimer });
+    const innerPayload = JSON.stringify({ ...content, destructTimer });
 
-      const { encryptedPayload, iv } = await encryptMessage(
-        innerPayload,
-        sharedSecretRef.current
-      );
+    const { encryptedPayload, iv } = await encryptMessage(
+      innerPayload,
+      sharedSecretRef.current
+    );
 
-      wsRef.current.send(
-        JSON.stringify({
-          type: "message",
-          payload: { roomId, encryptedPayload, iv },
-        })
-      );
+    wsRef.current.send(JSON.stringify({
+      type: "message",
+      payload: { roomId, encryptedPayload, iv }
+    }));
 
-      const expiresAt = destructTimer
-        ? Date.now() + destructTimer * 1000
-        : null;
-
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: `local-${Date.now()}`,
-          ...content,
-          isMine: true,
-          timestamp: Date.now(),
-          expiresAt,
-        },
-      ]);
-
-      return true;
-    } catch (err) {
-      console.error("Failed to send encrypted message", err);
-      return false;
-    }
+    return true;
   };
 
   const sendTypingStatus = (isTyping: boolean) => {
+
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(
-        JSON.stringify({
-          type: "typing",
-          payload: { roomId, isTyping },
-        })
-      );
+
+      wsRef.current.send(JSON.stringify({
+        type: "typing",
+        payload: { roomId, isTyping }
+      }));
+
     }
   };
-
-  // Dummy call functions so UI doesn't crash
-  const startCall = () => {};
-  const endCall = () => {};
 
   return {
     messages,
@@ -306,6 +379,7 @@ export function useChat(roomId: string) {
     sendMessage,
     sendTypingStatus,
     startCall,
-    endCall,
+    endCall
   };
+
 }

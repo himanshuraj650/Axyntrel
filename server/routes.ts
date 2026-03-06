@@ -114,23 +114,27 @@ export async function registerRoutes(
             }
           });
         }
-        else if (type === 'callSignal' && currentRoomId) {
-          const parsed = wsEvents.send.callSignal.parse(payload);
-          const msg = JSON.stringify({
-            type: 'callSignal',
-            payload: { 
-              encryptedPayload: parsed.encryptedPayload,
-              iv: parsed.iv,
-              timestamp: Date.now()
-            }
-          });
-          const roomClients = roomsMap.get(currentRoomId)!;
-          roomClients.forEach(client => {
-            if (client !== ws && client.readyState === WebSocket.OPEN) {
-              client.send(msg);
-            }
-          });
-        }
+        else if (type === "callSignal" && currentRoomId) {
+  const parsed = wsEvents.send.callSignal.parse(payload);
+
+  const msg = JSON.stringify({
+    type: "callSignal",
+    payload: {
+      encryptedPayload: parsed.encryptedPayload,
+      iv: parsed.iv,
+      timestamp: Date.now()
+    }
+  });
+
+  const roomClients = roomsMap.get(currentRoomId)!;
+
+  // Relay WebRTC signal to all other peers
+  roomClients.forEach(client => {
+    if (client !== ws && client.readyState === WebSocket.OPEN) {
+      client.send(msg);
+    }
+  });
+}
       } catch (err) {
         console.error("WS error:", err);
         ws.send(JSON.stringify({ type: 'error', payload: { message: "Invalid message format" } }));
