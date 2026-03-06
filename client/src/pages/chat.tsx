@@ -5,16 +5,12 @@ import {
   ArrowLeft,
   Copy,
   CheckCircle2,
-  Phone,
-  Video,
-  PhoneOff,
   Lock,
   ShieldAlert,
   ShieldCheck
 } from "lucide-react";
 
 import { useChat } from "@/hooks/use-chat";
-import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { ChatInput } from "@/components/chat/chat-input";
 import { MessageBubble } from "@/components/chat/message-bubble";
@@ -31,52 +27,14 @@ export default function Chat() {
     connectionState,
     peerIsTyping,
     errorMsg,
-    callState,
     sendMessage,
-    sendTypingStatus,
-    startCall,
-    endCall
+    sendTypingStatus
   } = useChat(roomId);
 
   const scrollRef = useRef<HTMLDivElement>(null);
-  const remoteVideoRef = useRef<HTMLVideoElement>(null);
-  const localVideoRef = useRef<HTMLVideoElement>(null);
-
   const [copied, setCopied] = useState(false);
 
-  /* attach remote stream */
-
-  useEffect(() => {
-
-    if (remoteVideoRef.current && callState.remoteStream) {
-
-      remoteVideoRef.current.srcObject = callState.remoteStream;
-
-      remoteVideoRef.current.play().catch(() => {
-        console.log("remote autoplay blocked");
-      });
-
-    }
-
-  }, [callState.remoteStream]);
-
-  /* attach local stream */
-
-  useEffect(() => {
-
-    if (localVideoRef.current && callState.localStream) {
-
-      localVideoRef.current.srcObject = callState.localStream;
-
-      localVideoRef.current.play().catch(() => {
-        console.log("local autoplay blocked");
-      });
-
-    }
-
-  }, [callState.localStream]);
-
-  /* auto scroll */
+  /* AUTO SCROLL */
 
   useEffect(() => {
 
@@ -85,6 +43,8 @@ export default function Chat() {
     }
 
   }, [messages, peerIsTyping]);
+
+  /* COPY ROOM ID */
 
   const copyRoomId = () => {
 
@@ -100,6 +60,8 @@ export default function Chat() {
     setTimeout(() => setCopied(false), 2000);
 
   };
+
+  /* STATUS CONFIG */
 
   const statusConfig = {
 
@@ -144,6 +106,8 @@ export default function Chat() {
   const currentStatus = statusConfig[connectionState];
   const StatusIcon = currentStatus.icon;
 
+  /* ERROR SCREEN */
+
   if (errorMsg) {
 
     return (
@@ -179,8 +143,6 @@ export default function Chat() {
 
       <header className="flex-none h-16 border-b border-border bg-card/50 backdrop-blur-md flex items-center justify-between px-4">
 
-        {/* LEFT */}
-
         <div className="flex items-center gap-3">
 
           <Link
@@ -210,82 +172,17 @@ export default function Chat() {
             </div>
 
             <div className={`flex items-center gap-1 text-xs ${currentStatus.color}`}>
-
               <StatusIcon className="w-3 h-3" />
               {currentStatus.text}
-
             </div>
 
           </div>
 
         </div>
 
-        {/* RIGHT */}
-
-        <div className="flex items-center gap-2">
-
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => startCall(false)}
-          >
-            <Phone className="w-5 h-5" />
-          </Button>
-
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => startCall(true)}
-          >
-            <Video className="w-5 h-5" />
-          </Button>
-
-          {callState.isCalling && (
-
-            <Button
-              variant="destructive"
-              size="icon"
-              onClick={endCall}
-            >
-              <PhoneOff className="w-5 h-5" />
-            </Button>
-
-          )}
-
-        </div>
-
       </header>
 
-      {/* CALL UI */}
-
-      {callState.remoteStream && (
-
-        <div className="bg-black flex justify-center items-center">
-
-          <video
-            ref={remoteVideoRef}
-            autoPlay
-            playsInline
-            className="w-full h-[320px] bg-black"
-          />
-
-        </div>
-
-      )}
-
-      {callState.localStream && (
-
-        <video
-          ref={localVideoRef}
-          autoPlay
-          muted
-          playsInline
-          className="w-32 fixed bottom-24 right-4 rounded-lg border shadow-lg"
-        />
-
-      )}
-
-      {/* CHAT */}
+      {/* CHAT AREA */}
 
       <main
         ref={scrollRef}
