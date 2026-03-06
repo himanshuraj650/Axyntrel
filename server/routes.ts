@@ -114,11 +114,10 @@ export async function registerRoutes(
             }
           });
         }
-        else if (type === "callSignal" && currentRoomId) {
+       else if (type === "callSignal" && currentRoomId) {
 
   const roomClients = roomsMap.get(currentRoomId)!;
 
-  // relay signal directly
   const msg = JSON.stringify({
     type: "callSignal",
     payload: payload
@@ -129,6 +128,7 @@ export async function registerRoutes(
       client.send(msg);
     }
   });
+
 }
       } catch (err) {
         console.error("WS error:", err);
