@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import { useRoute } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
-import { ArrowLeft, Copy, CheckCircle2, Phone, Video } from "lucide-react";
+import { ArrowLeft, Copy, CheckCircle2, Phone, Video, Lock, ShieldAlert, ShieldCheck } from "lucide-react";
 import { useChat } from "@/hooks/use-chat";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
@@ -16,13 +16,14 @@ export default function Chat() {
   const { toast } = useToast();
 
   const {
-    messages,
-    connectionState,
-    peerIsTyping,
-    errorMsg,
-    sendMessage,
-    sendTypingStatus
-  } = useChat(roomId);
+  messages,
+  connectionState,
+  peerIsTyping,
+  errorMsg,
+  sendMessage,
+  sendTypingStatus,
+  startCall
+} = useChat(roomId);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const [copied, setCopied] = useState(false);
