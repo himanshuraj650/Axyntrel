@@ -28,205 +28,125 @@ export type ConnectionState =
 
 export function useChat(roomId: string) {
 
-const [messages, setMessages] = useState<ChatMessage[]>([]);
-const [connectionState, setConnectionState] =
+const [messages,setMessages]=useState<ChatMessage[]>([]);
+const [connectionState,setConnectionState]=
 useState<ConnectionState>("connecting");
 
-const [peerIsTyping, setPeerIsTyping] = useState(false);
-const [errorMsg, setErrorMsg] = useState<string | null>(null);
+const [peerIsTyping,setPeerIsTyping]=useState(false);
+const [errorMsg,setErrorMsg]=useState<string|null>(null);
 
-const wsRef = useRef<WebSocket | null>(null);
-const keyPairRef = useRef<CryptoKeyPair | null>(null);
-const sharedSecretRef = useRef<CryptoKey | null>(null);
-const myPublicKeyBase64Ref = useRef<string | null>(null);
-
-/* Voice Call */
-const pcRef = useRef<RTCPeerConnection | null>(null);
-const localStreamRef = useRef<MediaStream | null>(null);
+const wsRef=useRef<WebSocket|null>(null);
+const keyPairRef=useRef<CryptoKeyPair|null>(null);
+const sharedSecretRef=useRef<CryptoKey|null>(null);
+const myPublicKeyBase64Ref=useRef<string|null>(null);
 
 /* AUTO DELETE */
 
-useEffect(() => {
+useEffect(()=>{
 
-const interval = setInterval(() => {
+const interval=setInterval(()=>{
 
-const now = Date.now();
+const now=Date.now();
 
-setMessages(prev =>
-prev.filter(msg =>
-msg.expiresAt === null || msg.expiresAt > now
+setMessages(prev=>
+prev.filter(msg=>
+msg.expiresAt===null||msg.expiresAt>now
 )
 );
 
-}, 1000);
+},1000);
 
-return () => clearInterval(interval);
+return()=>clearInterval(interval);
 
-}, []);
+},[]);
 
-/* WEBRTC */
+/* CONNECT */
 
-const createPeerConnection = () => {
+const connect=useCallback(async()=>{
 
-const pc = new RTCPeerConnection({
+if(wsRef.current) return;
 
-iceServers: [
-
-{ urls: "stun:stun.l.google.com:19302" },
-
-{
-urls: "turn:openrelay.metered.ca:80",
-username: "openrelayproject",
-credential: "openrelayproject"
-},
-
-{
-urls: "turn:openrelay.metered.ca:443",
-username: "openrelayproject",
-credential: "openrelayproject"
-}
-
-]
-
-});
-
-pc.ontrack = (event) => {
-
-const audio = new Audio();
-audio.srcObject = event.streams[0];
-audio.play();
-
-};
-
-pc.onicecandidate = (event) => {
-
-if (event.candidate && wsRef.current) {
-
-wsRef.current.send(
-JSON.stringify({
-type: "voiceCandidate",
-payload: {
-candidate: event.candidate,
-roomId
-}
-})
-);
-
-}
-
-};
-
-pcRef.current = pc;
-
-};
-
-/* START VOICE CALL */
-
-const startCall = async () => {
-
-const stream = await navigator.mediaDevices.getUserMedia({
-audio: true
-});
-
-localStreamRef.current = stream;
-
-createPeerConnection();
-
-stream.getTracks().forEach(track => {
-pcRef.current?.addTrack(track, stream);
-});
-
-const offer = await pcRef.current!.createOffer();
-
-await pcRef.current!.setLocalDescription(offer);
-
-wsRef.current?.send(JSON.stringify({
-type: "voiceOffer",
-payload: {
-offer,
-roomId
-}
-}));
-
-};
-
-/* END CALL */
-
-const endCall = () => {
-
-pcRef.current?.close();
-
-localStreamRef.current?.getTracks().forEach(t => t.stop());
-
-};
-
-/* WEBSOCKET */
-
-const connect = useCallback(async () => {
-
-if (wsRef.current) return;
-
-try {
+try{
 
 setConnectionState("generating_keys");
 
-const keyPair = await generateKeyPair();
-keyPairRef.current = keyPair;
+const keyPair=await generateKeyPair();
+keyPairRef.current=keyPair;
 
-myPublicKeyBase64Ref.current =
+myPublicKeyBase64Ref.current=
 await exportPublicKey(keyPair.publicKey);
 
-const protocol =
-window.location.protocol === "https:" ? "wss:" : "ws:";
+const protocol=
+window.location.protocol==="https:"?"wss:":"ws:";
 
-const ws = new WebSocket(
+const ws=new WebSocket(
 `${protocol}//${window.location.host}/ws`
 );
 
-wsRef.current = ws;
+wsRef.current=ws;
 
-ws.onopen = () => {
+ws.onopen=()=>{
 
 setConnectionState("waiting_for_peer");
 
 ws.send(JSON.stringify({
-type: "join",
-payload: { roomId }
+type:"join",
+payload:{roomId}
 }));
 
 ws.send(JSON.stringify({
-type: "publicKey",
-payload: {
+type:"publicKey",
+payload:{
 roomId,
-publicKey: myPublicKeyBase64Ref.current
+publicKey:myPublicKeyBase64Ref.current
 }
 }));
 
 };
 
-ws.onmessage = async (event) => {
+ws.onmessage=async(event)=>{
 
-const parsed = JSON.parse(event.data);
+const parsed=JSON.parse(event.data);
+
+/* USER JOIN */
+
+if(parsed.type==="userJoined"){
+
+const data=wsEvents.receive.userJoined.parse(parsed.payload);
+
+if(data.clientsCount>1){
+
+ws.send(JSON.stringify({
+type:"publicKey",
+payload:{
+roomId,
+publicKey:myPublicKeyBase64Ref.current
+}
+}));
+
+}
+
+}
 
 /* KEY EXCHANGE */
 
-if (parsed.type === "publicKey") {
+else if(parsed.type==="publicKey"){
 
-const data = wsEvents.receive.publicKey.parse(parsed.payload);
+const data=wsEvents.receive.publicKey.parse(parsed.payload);
 
-if (
+if(
 keyPairRef.current &&
-data.publicKey !== myPublicKeyBase64Ref.current
-) {
+data.publicKey!==myPublicKeyBase64Ref.current
+){
 
-const peerKey = await importPublicKey(data.publicKey);
+const peerKey=await importPublicKey(data.publicKey);
 
-const secret = await deriveSecret(
+const secret=await deriveSecret(
 keyPairRef.current.privateKey,
 peerKey
 );
 
-sharedSecretRef.current = secret;
+sharedSecretRef.current=secret;
 
 setConnectionState("secured");
 
@@ -236,33 +156,33 @@ setConnectionState("secured");
 
 /* MESSAGE */
 
-else if (parsed.type === "message") {
+else if(parsed.type==="message"){
 
-const data = wsEvents.receive.message.parse(parsed.payload);
+const data=wsEvents.receive.message.parse(parsed.payload);
 
-if (!sharedSecretRef.current) return;
+if(!sharedSecretRef.current) return;
 
-const decryptedJson = await decryptMessage(
+const decryptedJson=await decryptMessage(
 data.encryptedPayload,
 data.iv,
 sharedSecretRef.current
 );
 
-const payload = JSON.parse(decryptedJson);
+const payload=JSON.parse(decryptedJson);
 
-const expiresAt =
+const expiresAt=
 payload.destructTimer
-? Date.now() + payload.destructTimer * 1000
-: null;
+?Date.now()+payload.destructTimer*1000
+:null;
 
-setMessages(prev => [
+setMessages(prev=>[
 ...prev,
 {
-id: `${data.timestamp}-${Math.random()}`,
-text: payload.text,
-image: payload.image,
-isMine: false,
-timestamp: data.timestamp,
+id:`${data.timestamp}-${Math.random()}`,
+text:payload.text,
+image:payload.image,
+isMine:false,
+timestamp:data.timestamp,
 expiresAt
 }
 ]);
@@ -271,130 +191,95 @@ expiresAt
 
 /* TYPING */
 
-else if (parsed.type === "typing") {
+else if(parsed.type==="typing"){
 
-const data = wsEvents.receive.typing.parse(parsed.payload);
+const data=wsEvents.receive.typing.parse(parsed.payload);
 setPeerIsTyping(data.isTyping);
 
 }
 
-/* VOICE OFFER */
+/* USER LEFT */
 
-else if (parsed.type === "voiceOffer") {
+else if(parsed.type==="userLeft"){
 
-createPeerConnection();
-
-const stream = await navigator.mediaDevices.getUserMedia({
-audio: true
-});
-
-localStreamRef.current = stream;
-
-stream.getTracks().forEach(track => {
-pcRef.current?.addTrack(track, stream);
-});
-
-await pcRef.current!.setRemoteDescription(
-parsed.payload.offer
-);
-
-const answer = await pcRef.current!.createAnswer();
-
-await pcRef.current!.setLocalDescription(answer);
-
-wsRef.current?.send(JSON.stringify({
-type: "voiceAnswer",
-payload: { answer, roomId }
-}));
-
-}
-
-/* VOICE ANSWER */
-
-else if (parsed.type === "voiceAnswer") {
-
-await pcRef.current?.setRemoteDescription(
-parsed.payload.answer
-);
-
-}
-
-/* ICE */
-
-else if (parsed.type === "voiceCandidate") {
-
-await pcRef.current?.addIceCandidate(
-parsed.payload.candidate
-);
+setConnectionState("waiting_for_peer");
+sharedSecretRef.current=null;
+setPeerIsTyping(false);
 
 }
 
 };
 
-ws.onclose = () => {
+ws.onclose=()=>{
 
 setConnectionState("disconnected");
-wsRef.current = null;
+wsRef.current=null;
 
 };
 
-ws.onerror = () => {
+ws.onerror=()=>{
 
 setConnectionState("error");
+setErrorMsg("WebSocket connection failed");
 
 };
 
-} catch (err) {
+}catch(err){
 
-console.error(err);
 setConnectionState("error");
 
 }
 
-}, [roomId]);
+},[roomId]);
 
-useEffect(() => {
+useEffect(()=>{
 
 connect();
 
-return () => {
+return()=>{
 
 wsRef.current?.close();
-endCall();
 
 };
 
-}, [connect]);
+},[connect]);
 
 /* SEND MESSAGE */
 
-const sendMessage = async (
-content: { text?: string; image?: string },
-destructTimer: number | null
-) => {
+const sendMessage=async(
+content:{text?:string,image?:string},
+destructTimer:number|null
+)=>{
 
-if (!wsRef.current || !sharedSecretRef.current) return false;
+if(
+!wsRef.current||
+!sharedSecretRef.current||
+wsRef.current.readyState!==WebSocket.OPEN
+){
+return false;
+}
 
-const innerPayload = JSON.stringify({ ...content, destructTimer });
+const innerPayload=
+JSON.stringify({...content,destructTimer});
 
-const { encryptedPayload, iv } =
-await encryptMessage(innerPayload, sharedSecretRef.current);
+const {encryptedPayload,iv}=
+await encryptMessage(innerPayload,sharedSecretRef.current);
 
 wsRef.current.send(JSON.stringify({
-type: "message",
-payload: { roomId, encryptedPayload, iv }
+type:"message",
+payload:{roomId,encryptedPayload,iv}
 }));
 
-const expiresAt =
-destructTimer ? Date.now() + destructTimer * 1000 : null;
+const expiresAt=
+destructTimer?Date.now()+destructTimer*1000:null;
 
-setMessages(prev => [
+setMessages(prev=>[
 ...prev,
 {
-id: `local-${Date.now()}`,
+id:`local-${Date.now()}`,
 ...content,
-isMine: true,
-timestamp: Date.now(),
+isMine:true,
+timestamp:Date.now(),
 expiresAt
 }
 ]);
@@ -405,24 +290,27 @@ return true;
 
 /* TYPING */
 
-const sendTypingStatus = (isTyping: boolean) => {
+const sendTypingStatus=(isTyping:boolean)=>{
 
-wsRef.current?.send(JSON.stringify({
-type: "typing",
-payload: { roomId, isTyping }
+if(wsRef.current &&
+wsRef.current.readyState===WebSocket.OPEN){
+
+wsRef.current.send(JSON.stringify({
+type:"typing",
+payload:{roomId,isTyping}
 }));
+
+}
 
 };
 
-return {
+return{
 messages,
 connectionState,
 peerIsTyping,
 errorMsg,
 sendMessage,
-sendTypingStatus,
-startCall,
-endCall
+sendTypingStatus
 };
 
 }
