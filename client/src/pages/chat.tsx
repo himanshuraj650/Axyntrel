@@ -28,8 +28,7 @@ export default function Chat() {
     peerIsTyping,
     errorMsg,
     sendMessage,
-    sendTypingStatus,
-    startCall
+    sendTypingStatus
   } = useChat(roomId);
 
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -190,8 +189,6 @@ export default function Chat() {
 
         </div>
 
-  
-
       </header>
 
       {/* CHAT AREA */}
@@ -202,6 +199,8 @@ export default function Chat() {
       >
 
         <div className="max-w-3xl mx-auto flex flex-col min-h-full pb-4">
+
+          {/* EMPTY STATE */}
 
           {messages.length === 0 && connectionState === "secured" && (
 
@@ -230,6 +229,8 @@ export default function Chat() {
             ))}
 
           </AnimatePresence>
+
+          {/* TYPING INDICATOR */}
 
           {peerIsTyping && (
 
